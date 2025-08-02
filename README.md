@@ -13,14 +13,17 @@ Better load order editing interface, sorting and automation.
 
 **How to use**:
 
+    Basic:
     - ﻿Put the exe in a folder somewhere
      - If you want them, add category dividers from the nexus dependencies to your load order (not needed for basic mode)
     - ﻿Launch and click the settings button, click Browse LSX and locate your modsettings file (see images), Save the settings
      - Click Load LSX, now you can move mods around, Reset from file or Save Changes (you have to manually save any changes you want to persist)
-    
+     
+    Main file (first follow the Basic steps but using the main file):   
     ﻿- Add new mods (with your mod manager of choice) and put them under the UNSORTED category divider in your load order
         - this allows one button category recommendation/update.
-            - First fill out all Settings folder fields first (for some reason the settings window minimizes when file browsing :/), Save the settings 
+            - First fill out all Settings folder fields first (for some reason the settings window minimizes when file browsing :/), Save the settings
+            - Acquire a [Groq API key](https://console.groq.com/keys) and add it to the Settings
             - click Generate Mod Data ﻿to extract mod ﻿descriptions, they will be stored in the LOS data folder set in settings 
             - click Generate Sort Recommendations, look them over, ﻿move lines around as ﻿needed with alt-arrow_keys in the right side text editor
             - click Confirm Changes to update ﻿your sort order.
