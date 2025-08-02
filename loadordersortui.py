@@ -75,6 +75,7 @@ class ModManagerGUI:
         self.state_file = "mod_manager_state.json"
         self.mod_items: List[ModItem] = []  # Single continuous list
         self.collapsed_categories = set()  # Track which categories are collapsed
+        self.settings_window = None  # Track settings window
         
         # GUI setup
         self.settings = Settings()
@@ -114,7 +115,7 @@ class ModManagerGUI:
         self.tree.heading("Index", text="Index")
         self.tree.column("Index", width=60, minwidth=60, stretch=False)  # Index column - fixed width
         self.tree.heading("Mod Name", text="Mod Name")
-        self.tree.column("Mod Name", width=600, minwidth=200, stretch=True)  # Name column - stretches
+        self.tree.column("Mod Name", width=400, minwidth=200, stretch=True)  # Name column - stretches
         
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -133,15 +134,25 @@ class ModManagerGUI:
 
         # Right side - text editor
         editor_frame = ttk.Frame(paned_window)
-        self.text_editor = tk.Text(editor_frame)
-        self.text_editor.pack(fill=tk.BOTH, expand=True)
-        self.text_editor.bind('<Alt-Up>', self.move_line_up)
-        self.text_editor.bind('<Alt-Down>', self.move_line_down)
+        editor_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Add editor scrollbar
-        editor_scrollbar = ttk.Scrollbar(editor_frame, orient=tk.VERTICAL, command=self.text_editor.yview)
-        editor_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.text_editor.configure(yscrollcommand=editor_scrollbar.set)
+        # Create text editor with scrollbar
+        self.text_editor = tk.Text(editor_frame, wrap=tk.NONE)
+        
+        # Scrollbars
+        editor_v_scrollbar = ttk.Scrollbar(editor_frame, orient=tk.VERTICAL, command=self.text_editor.yview)
+        editor_h_scrollbar = ttk.Scrollbar(editor_frame, orient=tk.HORIZONTAL, command=self.text_editor.xview)
+        self.text_editor.configure(yscrollcommand=editor_v_scrollbar.set, xscrollcommand=editor_h_scrollbar.set)
+
+        # Pack text editor and scrollbars
+        self.text_editor.grid(row=0, column=0, sticky="nsew")
+        editor_v_scrollbar.grid(row=0, column=1, sticky="ns")
+        editor_h_scrollbar.grid(row=1, column=0, sticky="ew")
+        
+        editor_frame.grid_rowconfigure(0, weight=1)
+        editor_frame.grid_columnconfigure(0, weight=1)
+        
+        # Bind key events
         
         # Load initial content
         self.load_text_editor_content()
@@ -152,6 +163,11 @@ class ModManagerGUI:
         self.tree.bind("<Double-Button-1>", self.on_tree_double_click)
         self.tree.bind("<Key>", self.on_tree_key)
         self.tree.bind("<Motion>", self.on_mouse_motion)
+        self.tree.bind('<Alt-Up>', self.move_items_up)
+        self.tree.bind('<Alt-Down>', self.move_items_down)
+
+        self.text_editor.bind('<Alt-Up>', self.move_line_up)
+        self.text_editor.bind('<Alt-Down>', self.move_line_down)
         
         # Drag and drop bindings
         if DRAG_DROP_AVAILABLE:
@@ -169,6 +185,12 @@ class ModManagerGUI:
         bottom_frame = ttk.Frame(main_frame)
         bottom_frame.pack(fill=tk.X)
         
+        # Control buttons
+        self.sort_button = ttk.Button(bottom_frame, 
+                                    text=self.get_sort_button_text(),
+                                    command=self.process_sort)
+        self.sort_button.pack(side=tk.LEFT)
+
         ttk.Button(bottom_frame, text="Save Changes", command=self.save_changes).pack(side=tk.RIGHT)
         ttk.Button(bottom_frame, text="Reset", command=self.reset_changes).pack(side=tk.RIGHT, padx=(0, 5))
         
@@ -179,22 +201,38 @@ class ModManagerGUI:
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
 
     def show_settings(self):
-        settings_window = tk.Toplevel(self.root)
-        settings_window.title("Settings")
-        settings_window.geometry("700x400")
+        # Check if settings window already exists and is still valid
+        if self.settings_window and self.settings_window.winfo_exists():
+            # Focus existing window
+            self.settings_window.lift()
+            self.settings_window.focus_force()
+            return
+            
+        # Create new settings window
+        self.settings_window = tk.Toplevel(self.root)
+        self.settings_window.title("Settings")
+        self.settings_window.geometry("700x300")
+
+        # Clear reference when window is closed
+        def on_settings_close():
+            if self.settings_window:
+                self.settings_window.destroy()
+            self.settings_window = None
+            
+        self.settings_window.protocol("WM_DELETE_WINDOW", on_settings_close)
 
         # File selection for modsettings.lsx
-        ttk.Label(settings_window, text="Select modsettings.lsx file:").pack(anchor=tk.W, padx=5)
-        file_frame = ttk.Frame(settings_window)
+        ttk.Label(self.settings_window, text="Select modsettings.lsx file:").pack(anchor=tk.W, padx=5)
+        file_frame = ttk.Frame(self.settings_window)
         file_frame.pack(fill=tk.X, padx=5)
         file_entry = ttk.Entry(file_frame)
         file_entry.insert(0, self.settings.loadorder_file)
         file_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(file_entry, text="Browse LSX", command=lambda: self.browse_xml_file(file_entry)).pack(side=tk.RIGHT)        
+        ttk.Button(file_frame, text="Browse LSX", command=lambda: self.browse_xml_file(file_entry)).pack(side=tk.RIGHT)        
 
         # Mods folder
-        ttk.Label(settings_window, text="Mods Folder:").pack(anchor=tk.W, padx=5)
-        mods_frame = ttk.Frame(settings_window)
+        ttk.Label(self.settings_window, text="Mods Folder:").pack(anchor=tk.W, padx=5)
+        mods_frame = ttk.Frame(self.settings_window)
         mods_frame.pack(fill=tk.X, padx=5)
         mods_entry = ttk.Entry(mods_frame)
         mods_entry.insert(0, self.settings.pak_folder)
@@ -203,8 +241,8 @@ class ModManagerGUI:
                    command=lambda: self.browse_folder(mods_entry)).pack(side=tk.RIGHT)
 
         # GROQ API Key
-        ttk.Label(settings_window, text="GROQ API Key:").pack(anchor=tk.W, padx=5)
-        key_frame = ttk.Frame(settings_window)
+        ttk.Label(self.settings_window, text="GROQ API Key:").pack(anchor=tk.W, padx=5)
+        key_frame = ttk.Frame(self.settings_window)
         key_frame.pack(fill=tk.X, padx=5)
         key_var = tk.StringVar(value=self.settings.groq_api_key)
         key_entry = ttk.Entry(key_frame, show="*", textvariable=key_var)
@@ -214,14 +252,14 @@ class ModManagerGUI:
                        command=lambda: key_entry.config(show="" if self.show_key.get() else "*")).pack(side=tk.RIGHT)
 
         # Model Selection
-        ttk.Label(settings_window, text="Model:").pack(anchor=tk.W, padx=5)
-        model_entry = ttk.Entry(settings_window)
+        ttk.Label(self.settings_window, text="Model:").pack(anchor=tk.W, padx=5)
+        model_entry = ttk.Entry(self.settings_window)
         model_entry.insert(0, self.settings.model)
         model_entry.pack(fill=tk.X, padx=5)
 
         # Data Directory
-        ttk.Label(settings_window, text="Load Order Sort Data Directory (where to store the mod data and settings for this program):").pack(anchor=tk.W, padx=5)
-        data_frame = ttk.Frame(settings_window)
+        ttk.Label(self.settings_window, text="Load Order Sort Data Directory (where to store the mod data and settings for this program):").pack(anchor=tk.W, padx=5)
+        data_frame = ttk.Frame(self.settings_window)
         data_frame.pack(fill=tk.X, padx=5)
         data_entry = ttk.Entry(data_frame)
         data_entry.insert(0, self.settings.data_directory)
@@ -230,18 +268,14 @@ class ModManagerGUI:
                    command=lambda: self.browse_folder(data_entry)).pack(side=tk.RIGHT)
 
         # Action Buttons
-        button_frame = ttk.Frame(settings_window)
+        button_frame = ttk.Frame(self.settings_window)
         button_frame.pack(fill=tk.X, padx=5, pady=10)
         ttk.Button(button_frame, text="Generate Mod Data", 
                    command=self.generate_mod_data).pack(side=tk.LEFT)
-        self.sort_button = ttk.Button(button_frame, 
-                                    text=self.get_sort_button_text(),
-                                    command=self.process_sort)
-        self.sort_button.pack(side=tk.RIGHT)
 
         # Save/Cancel buttons
-        ttk.Button(settings_window, text="Save", 
-                   command=lambda: self.save_settings_dialog(settings_window, 
+        ttk.Button(self.settings_window, text="Save", 
+                   command=lambda: self.save_settings_dialog(self.settings_window, 
                                                           file_entry.get(),
                                                           mods_entry.get(),
                                                           key_var.get(),
@@ -250,45 +284,76 @@ class ModManagerGUI:
 
     def get_sort_button_text(self):
         txt_path = os.path.join(self.settings.data_directory, "loadorder.txt")
-        return "Confirm Changes" if os.path.exists(txt_path) and os.path.getsize(txt_path) > 0 else "Generate Sort Recommendation"
+        return "Apply Changes" if os.path.exists(txt_path) and os.path.getsize(txt_path) > 0 else "Generate Sort Recommendation"
 
     def move_line_up(self, event):
-        """Move the current line up"""
-        # Get current line and previous line
-        current_index = self.text_editor.index("insert linestart")
-        if current_index == "1.0":  # Already at top
+        """Move the current line or selected lines up"""
+        # Get current selection or cursor position
+        try:
+            start_index = self.text_editor.index("sel.first linestart")
+            end_index = self.text_editor.index("sel.last lineend")
+        except tk.TclError:
+            # No selection, use current line
+            start_index = self.text_editor.index("insert linestart")
+            end_index = self.text_editor.index("insert lineend")
+        
+        # Check if we're already at the top
+        if start_index == "1.0":
             return "break"
-            
-        current_line = self.text_editor.get("insert linestart", "insert lineend")
-        previous_line = self.text_editor.get(f"{current_index}-1l linestart", f"{current_index}-1l lineend")
         
-        # Swap the lines
-        self.text_editor.delete(f"{current_index}-1l linestart", "insert lineend")
-        self.text_editor.insert(f"{current_index}-1l linestart", f"{current_line}\n{previous_line}")
+        # Get the selected lines and the line above
+        selected_text = self.text_editor.get(start_index, end_index)
+        above_line_start = self.text_editor.index(f"{start_index}-1l linestart")
+        above_line_end = self.text_editor.index(f"{start_index}-1l lineend")
+        above_line = self.text_editor.get(above_line_start, above_line_end)
         
-        # Move cursor to the moved line
-        self.text_editor.mark_set("insert", f"{current_index}-1l linestart")
+        # Delete the above line and selected lines
+        self.text_editor.delete(above_line_start, end_index)
+        
+        # Insert selected lines first, then the above line
+        self.text_editor.insert(above_line_start, f"{selected_text}\n{above_line}")
+        
+        # Restore selection
+        new_start = above_line_start
+        new_end = self.text_editor.index(f"{new_start}+{len(selected_text.splitlines())}l linestart-1c")
+        self.text_editor.tag_add("sel", new_start, new_end)
+        self.text_editor.mark_set("insert", new_start)
+        
         return "break"
 
     def move_line_down(self, event):
-        """Move the current line down"""
-        # Get current line and next line
-        current_index = self.text_editor.index("insert linestart")
-        next_index = self.text_editor.index(f"{current_index}+1l")
+        """Move the current line or selected lines down"""
+        # Get current selection or cursor position
+        try:
+            start_index = self.text_editor.index("sel.first linestart")
+            end_index = self.text_editor.index("sel.last lineend")
+        except tk.TclError:
+            # No selection, use current line
+            start_index = self.text_editor.index("insert linestart")
+            end_index = self.text_editor.index("insert lineend")
         
         # Check if we're at the last line
-        if self.text_editor.index("end-1c") == self.text_editor.index("insert lineend"):
+        if self.text_editor.index("end-1c") == end_index:
             return "break"
-            
-        current_line = self.text_editor.get("insert linestart", "insert lineend")
-        next_line = self.text_editor.get(f"{current_index}+1l linestart", f"{current_index}+1l lineend")
         
-        # Swap the lines
-        self.text_editor.delete(f"{current_index} linestart", f"{next_index} lineend")
-        self.text_editor.insert(current_index, f"{next_line}\n{current_line}")
+        # Get the selected lines and the line below
+        selected_text = self.text_editor.get(start_index, end_index)
+        below_line_start = self.text_editor.index(f"{end_index}+1l linestart")
+        below_line_end = self.text_editor.index(f"{end_index}+1l lineend")
+        below_line = self.text_editor.get(below_line_start, below_line_end)
         
-        # Move cursor to the moved line
-        self.text_editor.mark_set("insert", f"{current_index}+1l linestart")
+        # Delete selected lines and the line below
+        self.text_editor.delete(start_index, below_line_end)
+        
+        # Insert the below line first, then selected lines
+        self.text_editor.insert(start_index, f"{below_line}\n{selected_text}")
+        
+        # Restore selection
+        new_start = self.text_editor.index(f"{start_index}+1l linestart")
+        new_end = self.text_editor.index(f"{new_start}+{len(selected_text.splitlines())}l linestart-1c")
+        self.text_editor.tag_add("sel", new_start, new_end)
+        self.text_editor.mark_set("insert", new_start)
+        
         return "break"
 
     def generate_mod_data(self):
@@ -304,10 +369,15 @@ class ModManagerGUI:
             if self.get_sort_button_text() == "Generate Sort Recommendation":
                 # Generate new sort recommendation
                 process_empty_txt_file(self.xml_file_path, os.path.join(self.settings.data_directory, "loadorder.txt"), self.settings.groq_api_key, self.settings.model, os.path.join(self.settings.data_directory, "mods_data.json"))
+                # Reload the text editor content to show the new recommendation
+                self.load_text_editor_content()
             else:
                 # Process existing sort order
                 process_existing_txt_file(self.xml_file_path, 
                                        os.path.join(self.settings.data_directory, "loadorder.txt"))
+                self.load_xml_file()
+            # Update button text after processing
+            self.sort_button.config(text=self.get_sort_button_text())
             messagebox.showinfo("Success", "Sort order processed successfully!")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to process sort order: {str(e)}")
@@ -327,6 +397,8 @@ class ModManagerGUI:
         self.settings.save_settings()
         # Reload text editor content with new data directory
         self.load_text_editor_content()
+        # Clear settings window reference
+        self.settings_window = None
         window.destroy()
         
     def browse_xml_file(self, entry_widget):
@@ -455,6 +527,14 @@ class ModManagerGUI:
                 
     def populate_treeview(self):
         """Populate the treeview with all visible items in flat structure (subcategories are visual only)"""
+        # Store current selection before clearing to preserve selections when folding
+        selected_items = []
+        for item_id in self.tree.selection():
+            values = self.tree.item(item_id, "values")
+            if values and len(values) > 1:
+                selected_items.append(values[1].strip())
+        self._last_selection = selected_items
+
         # Store current column widths before clearing
         col0_width = self.tree.column("#0")['width']
         index_width = self.tree.column("Index")['width'] 
@@ -512,27 +592,36 @@ class ModManagerGUI:
         region = self.tree.identify_region(event.x, event.y)
         item = self.tree.identify_row(event.y)
         
-        # Check if this is a category click for folding
-        if item and "category" in self.tree.item(item, "tags"):
-            # Only toggle if clicked on the tree icon area or text, not for drag start
-            # Also check if this is NOT a Ctrl+click or Shift+click (which should be for selection)
-            if (region == "tree" or (region == "cell" and event.x < 100)) and not (event.state & 0x4) and not (event.state & 0x1):
-                # Toggle collapse state
-                original_index = self.item_to_original_index[item]
-                category_item = self.mod_items[original_index]
-                category_item.is_collapsed = not category_item.is_collapsed
+        if not item or not "category" in self.tree.item(item, "tags"):
+            return
+            
+        # Only toggle if clicked on the tree icon area or text, not for drag start
+        # Also check if this is NOT a Ctrl+click or Shift+click (which should be for selection)
+        if (region == "tree" or (region == "cell" and event.x < 100)) and not (event.state & 0x4) and not (event.state & 0x1):
+            # Toggle collapse state
+            original_index = self.item_to_original_index[item]
+            category_item = self.mod_items[original_index]
+            category_item.is_collapsed = not category_item.is_collapsed
+            
+            # Update collapsed categories set
+            if category_item.is_collapsed:
+                self.collapsed_categories.add(category_item.name)
+            else:
+                self.collapsed_categories.discard(category_item.name)
                 
-                # Update collapsed categories set
-                if category_item.is_collapsed:
-                    self.collapsed_categories.add(category_item.name)
-                else:
-                    self.collapsed_categories.discard(category_item.name)
-                    
-                # Update visibility and repopulate
-                self.update_visibility()
-                self.populate_treeview()
-                return "break"  # Prevent other event handlers from running
-                
+            # Update visibility and repopulate immediately
+            self.tree.after_idle(lambda: self.after_collapse_update())
+            return "break"  # Prevent other event handlers from running
+
+    def after_collapse_update(self):
+        """Update tree after collapse/expand"""
+        self.update_visibility()
+        self.populate_treeview()
+        
+        # Restore selection if possible
+        if hasattr(self, '_last_selection'):
+            self.select_items_by_name(self._last_selection)
+                        
     def on_tree_double_click(self, event):
         """Handle double-click events"""
         pass
@@ -591,12 +680,60 @@ class ModManagerGUI:
             # Get the item under the cursor
             target_item = self.tree.identify_row(event.y)
             if target_item and target_item not in self.drag_items:
-                # Highlight the drop target
-                self.tree.selection_set(self.drag_items + [target_item])
+                # Determine drop position (above or below target)
+                item_bbox = self.tree.bbox(target_item)
+                if item_bbox:
+                    item_y = item_bbox[1]
+                    item_height = item_bbox[3]
+                    relative_y = event.y - item_y
+                    
+                    # Clear previous highlights
+                    self.clear_drop_highlights()
+                    
+                    if relative_y < item_height // 2:
+                        # Drop above - highlight top edge
+                        self.highlight_drop_edge(target_item, "above")
+                        self.drop_position = "above"
+                    else:
+                        # Drop below - highlight bottom edge
+                        self.highlight_drop_edge(target_item, "below")
+                        self.drop_position = "below"
+                    
+                    self.drop_target = target_item
             else:
-                # Only show dragged items
-                self.tree.selection_set(self.drag_items)
+                # Clear highlights if no valid target
+                self.clear_drop_highlights()
+                self.drop_target = None
                 
+    def clear_drop_highlights(self):
+        """Clear all drop highlight indicators"""
+        # Remove any existing highlight tags and clean up arrow indicators
+        for item in self.tree.get_children():
+            current_text = self.tree.item(item, "text")
+            # Remove arrows from text
+            clean_text = current_text.replace("▲ ", "").replace("▼ ", "")
+            self.tree.item(item, text=clean_text)
+            # Reset tags to original
+            original_tags = ("category",) if "category" in self.tree.item(item, "tags") else ("mod",)
+            self.tree.item(item, tags=original_tags)
+
+    def highlight_drop_edge(self, target_item, position):
+        """Highlight the edge of target item for drop indication"""
+        # Get clean text without any existing arrows
+        current_text = self.tree.item(target_item, "text")
+        clean_text = current_text.replace("▲ ", "").replace("▼ ", "")
+        
+        if position == "above":
+            # Add visual indicator for dropping above (red background)
+            self.tree.item(target_item, text=f"▲ {clean_text}")
+            self.tree.item(target_item, tags=("drop_above",))
+            self.tree.tag_configure("drop_above", background="#ffcccc")  # Light red
+        else:
+            # Add visual indicator for dropping below (blue background)
+            self.tree.item(target_item, text=f"▼ {clean_text}")
+            self.tree.item(target_item, tags=("drop_below",))
+            self.tree.tag_configure("drop_below", background="#ccccff")  # Light blue
+
     def on_drag_end(self, event):
         """Handle end of drag operation"""
         if not hasattr(self, 'drag_start_item') or not self.drag_start_item:
@@ -605,23 +742,36 @@ class ModManagerGUI:
         # Reset cursor
         self.tree.config(cursor="")
         
+        # Clear highlights
+        self.clear_drop_highlights()
+        
+        # Store selected items before move for re-selection
+        selected_names = []
+        if hasattr(self, 'drag_items'):
+            for item_id in self.drag_items:
+                original_index = self.item_to_original_index[item_id]
+                selected_names.append(self.mod_items[original_index].name)
+        
         # Only perform move if we were actually dragging
-        if hasattr(self, 'drag_active') and self.drag_active:
-            # Get the drop target
-            target_item = self.tree.identify_row(event.y)
+        if hasattr(self, 'drag_active') and self.drag_active and hasattr(self, 'drop_target') and self.drop_target:
+            # Perform the move operation
+            self.move_items_to_target_with_position(self.drop_target, getattr(self, 'drop_position', 'below'))
             
-            if target_item and hasattr(self, 'drag_items') and target_item not in self.drag_items:
-                # Perform the move operation
-                self.move_items_to_target(target_item)
+            # Re-select the moved items
+            self.tree.after_idle(lambda: self.select_items_by_name(selected_names))
         
         # Clean up drag state
         self.drag_start_item = None
         self.drag_active = False
         if hasattr(self, 'drag_items'):
             delattr(self, 'drag_items')
+        if hasattr(self, 'drop_target'):
+            delattr(self, 'drop_target')
+        if hasattr(self, 'drop_position'):
+            delattr(self, 'drop_position')
         
-    def move_items_to_target(self, target_item):
-        """Move dragged items to the target position"""
+    def move_items_to_target_with_position(self, target_item, position):
+        """Move dragged items to the target position (above or below)"""
         # Get target index
         target_index = None
         for i, item_id in enumerate(self.tree.get_children()):
@@ -636,6 +786,10 @@ class ModManagerGUI:
         selected_items = self.get_selected_mod_items()
         if not selected_items:
             return
+            
+        # Adjust target index based on position
+        if position == "below":
+            target_index += 1
             
         # Get the items and XML nodes to move
         items_to_move = [item for _, item in selected_items]
@@ -785,11 +939,14 @@ class ModManagerGUI:
                 
         return sorted(selected_items, key=lambda x: x[0])  # Sort by original index
         
-    def move_items_up(self):
+    def move_items_up(self, event=None):
         """Move selected mod items up"""
         selected_items = self.get_selected_mod_items()
         if not selected_items:
             return
+            
+        # Store names for re-selection
+        selected_names = [item.name for _, item in selected_items]
             
         # Check if we can move up
         first_index = selected_items[0][0]
@@ -819,11 +976,17 @@ class ModManagerGUI:
         self.update_visibility()
         self.populate_treeview()
         
-    def move_items_down(self):
+        # Re-select moved items
+        self.tree.after_idle(lambda: self.select_items_by_name(selected_names))
+        
+    def move_items_down(self, event=None):
         """Move selected mod items down"""
         selected_items = self.get_selected_mod_items()
         if not selected_items:
             return
+            
+        # Store names for re-selection
+        selected_names = [item.name for _, item in selected_items]
             
         # Check if we can move down
         last_index = selected_items[-1][0]
@@ -852,6 +1015,9 @@ class ModManagerGUI:
         
         self.update_visibility()
         self.populate_treeview()
+        
+        # Re-select moved items
+        self.tree.after_idle(lambda: self.select_items_by_name(selected_names))
         
     def set_item_index(self):
         """Set specific index for selected items (multi-select supported)"""
