@@ -1,15 +1,13 @@
 # BG3-Load-Order-Sort
-Load order editing interface with Includes drag and drop, ctrl and shift multi select, single and multi line index setting, foldable categories and sub-categories. Reads mod descriptions and provides one button category recommendation/update for unsorted mods.
-
- Better load order editing interface, sorting and automation.
+Better load order editing interface, sorting and automation.
 
 
-Basic mode: Just a nicer load order interface.
+**Basic mode**: Just a nicer load order interface.
     Includes drag and drop, ctrl and shift multi select, alt-arrow_key selected line movement, single and multi line index setting,
     foldable categories and sub-categories.
 
 
-Add Groq key mode: Automatically sorts unsorted mods.
+**Add Groq key mode**: Automatically sorts unsorted mods.
     The editor reads mod descriptions and provides one button category recommendation, allows making adjustments and one button category population for unsorted mods.
 
     Adding new mods and putting them under the UNSORTED category divider in your load order allows one
