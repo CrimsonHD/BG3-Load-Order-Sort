@@ -28,6 +28,7 @@ class Settings:
         self.pak_folder = ""
         self.groq_api_key = ""
         self.model = "llama-3.3-70b-versatile"
+        self.mods_per_category_limit = "4"
         self.data_directory = ""
         self.settings_file = "settings.json"
         self.load_settings()
@@ -40,6 +41,7 @@ class Settings:
                 self.pak_folder = data.get('pak_folder', "")
                 self.groq_api_key = data.get('groq_api_key', "")
                 self.model = data.get('model', "llama-3.3-70b-versatile")
+                self.mods_per_category_limit = data.get('mods_per_category_limit', "4")
                 self.data_directory = data.get('data_directory', "")
         except FileNotFoundError:
             pass
@@ -50,6 +52,7 @@ class Settings:
             'pak_folder': self.pak_folder,
             'groq_api_key': self.groq_api_key,
             'model': self.model,
+            'mods_per_category_limit': self.mods_per_category_limit,
             'data_directory': self.data_directory
         }
         with open(self.settings_file, 'w') as f:
@@ -278,7 +281,7 @@ class ModManagerGUI:
         # Create new settings window
         self.settings_window = tk.Toplevel(self.root)
         self.settings_window.title("Settings")
-        self.settings_window.geometry("700x300")
+        self.settings_window.geometry("700x350")
 
         # Clear reference when window is closed
         def on_settings_close():
@@ -324,6 +327,12 @@ class ModManagerGUI:
         model_entry.insert(0, self.settings.model)
         model_entry.pack(fill=tk.X, padx=5)
 
+        # Context Mod Descriptions Per Category Selection
+        ttk.Label(self.settings_window, text="Mods per category used as context (use bigger number if have less than 350 mods or more than 6k tokens available per request):").pack(anchor=tk.W, padx=5)
+        mods_per_entry = ttk.Entry(self.settings_window)
+        mods_per_entry.insert(0, self.settings.mods_per_category_limit)
+        mods_per_entry.pack(fill=tk.X, padx=5)
+
         # Data Directory
         ttk.Label(self.settings_window, text="Load Order Sort Data Directory (where to store the mod data and settings for this program):").pack(anchor=tk.W, padx=5)
         data_frame = ttk.Frame(self.settings_window)
@@ -347,6 +356,7 @@ class ModManagerGUI:
                                                           mods_entry.get(),
                                                           key_var.get(),
                                                           model_entry.get(),
+                                                          mods_per_entry.get(),
                                                           data_entry.get())).pack(pady=5)
 
     def get_sort_button_text(self):
@@ -451,7 +461,7 @@ class ModManagerGUI:
         try:
             if self.get_sort_button_text() == "Generate Sort Recommendation":
                 # Generate new sort recommendation
-                process_empty_txt_file(self.xml_file_path, os.path.join(self.settings.data_directory, "loadorder.txt"), self.settings.groq_api_key, self.settings.model, os.path.join(self.settings.data_directory, "mods_data.json"))
+                process_empty_txt_file(self.xml_file_path, os.path.join(self.settings.data_directory, "loadorder.txt"), self.settings.groq_api_key, self.settings.model, os.path.join(self.settings.data_directory, "mods_data.json"), int(self.settings.mods_per_category_limit))
                 # Reload the text editor content to show the new recommendation
                 self.load_text_editor_content()
             else:
@@ -471,11 +481,12 @@ class ModManagerGUI:
             entry_widget.delete(0, tk.END)
             entry_widget.insert(0, folder)
 
-    def save_settings_dialog(self, window, loadorder_file, pak_folder, api_key, model, data_dir):
+    def save_settings_dialog(self, window, loadorder_file, pak_folder, api_key, model, mods_per_category_limit, data_dir):
         self.settings.loadorder_file = loadorder_file
         self.settings.pak_folder = pak_folder
         self.settings.groq_api_key = api_key
         self.settings.model = model
+        self.settings.mods_per_category_limit = mods_per_category_limit
         self.settings.data_directory = data_dir
         self.settings.save_settings()
         # Reload text editor content with new data directory
@@ -1250,7 +1261,7 @@ class ModManagerGUI:
                         content = f.read()
                     self.text_editor.insert(1.0, content)
                 else:
-                    self.text_editor.insert(1.0, "# Create or load a loadorder.txt file\n# Use Alt+Up/Down to move lines")
+                    self.text_editor.insert(1.0, "# Create a recommended sort order, will be saved in loadorder.txt file\n# Use Alt+Up/Down to move lines")
             except Exception as e:
                 self.text_editor.insert(1.0, f"Error loading loadorder.txt: {str(e)}")
 
