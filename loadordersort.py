@@ -10,7 +10,7 @@ from pydantic import ValidationError, Field, create_model
 import random
 from typing import Dict, List
 
-def process_empty_txt_file(xml_file_path, txt_file_path, api_key = GROQ_API_KEY, model = "llama-3.3-70b-versatile", mods_data_path = None):
+def process_empty_txt_file(xml_file_path, txt_file_path, api_key = GROQ_API_KEY, model = "llama-3.3-70b-versatile", mods_data_path = None, mods_per_category_limit = 4):
     """Create a JSON sorting of unsorted mods into categories via llm with random mod descriptions per category as context"""
     print("Processing XML to identify categories and unsorted nodes...")
 
@@ -104,7 +104,7 @@ def process_empty_txt_file(xml_file_path, txt_file_path, api_key = GROQ_API_KEY,
     
     # Call Groq API and get categorization
     print(f"Found {len(unsorted_nodes)} mods to categorize into {len(cleaned_category_separators)} categories")
-    categorization = ask_groq(groq_query, model, mods_data)
+    categorization = ask_groq(groq_query, model, mods_data, mods_per_category_limit)
 
     # remove duplicate values from categorization, CategorizationModel validates in a similar fashion
     for category, mods in categorization.items():
@@ -310,7 +310,7 @@ def load_mods_data(mods_data_path):
         print(f"Warning: Error parsing mods_data.json: {e}")
         return {}
 
-def ask_groq(query, model = "llama-3.3-70b-versatile", mods_data={}, max_retries=3):
+def ask_groq(query, model = "llama-3.3-70b-versatile", mods_data={}, mods_per_category_limit=4, max_retries=3):
     """
     Send a query to the Groq API and return the categorization.
     
@@ -331,7 +331,7 @@ def ask_groq(query, model = "llama-3.3-70b-versatile", mods_data={}, max_retries
     for attempt in range(max_retries):
         print(f"Groq API attempt {attempt + 1}/{max_retries}...")
         
-        result = _call_groq_api(query, model, mods_data)
+        result = _call_groq_api(query, model, mods_data, mods_per_category_limit)
         
         if result is not None:
             # Validate the result with Pydantic
@@ -364,7 +364,7 @@ def ask_groq(query, model = "llama-3.3-70b-versatile", mods_data={}, max_retries
         print("All attempts failed, using fallback categorization")
         return create_fallback_categorization(query, mod_names)
 
-def _call_groq_api(query, model= "llama-3.3-70b-versatile", mods_data=None):
+def _call_groq_api(query, model= "llama-3.3-70b-versatile", mods_data=None, mods_per_category_limit=4):
     """Internal function to make a single API call to Groq"""
     # Groq API endpoint
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -403,7 +403,6 @@ def _call_groq_api(query, model= "llama-3.3-70b-versatile", mods_data=None):
     json_categories = re.sub(r'[\n]', '', json.dumps(query["categories"], indent=1)).strip()
     json_mods = re.sub(r'[\n]', '', json.dumps(query['mods_to_categorize'], indent=1)).strip()
 
-    mods_per_category_limit = 4
     existing_categorized_mods = {
         category: random.sample(query["existing_categorized_mods"][category], min(mods_per_category_limit, len(query["existing_categorized_mods"][category])))
         for category in list(query["existing_categorized_mods"].keys())
