@@ -55,6 +55,61 @@ class Settings:
         with open(self.settings_file, 'w') as f:
             json.dump(data, f)
             
+# Command pattern for undo/redo functionality
+class Command:
+    def execute(self):
+        pass
+    
+    def undo(self):
+        pass
+
+class MoveItemsCommand(Command):
+    def __init__(self, mod_manager, old_items, new_items, old_xml_nodes, new_xml_nodes, selected_items_names=None):
+        self.mod_manager = mod_manager
+        self.old_items = old_items.copy()
+        self.new_items = new_items.copy()
+        self.old_xml_nodes = old_xml_nodes.copy()
+        self.new_xml_nodes = new_xml_nodes.copy()
+        self.selected_items_names = selected_items_names or []
+        
+    def execute(self):
+        # Apply the new state
+        self.mod_manager.mod_items = self.new_items.copy()
+        self.mod_manager.xml_nodes = self.new_xml_nodes.copy()
+        self.mod_manager.recalculate_all_levels()
+        self.mod_manager.update_visibility()
+        self.mod_manager.populate_treeview()
+        # Reselect items if any
+        if self.selected_items_names:
+            self.mod_manager.select_items_by_name(self.selected_items_names)
+        
+    def undo(self):
+        # Restore the old state
+        self.mod_manager.mod_items = self.old_items.copy()
+        self.mod_manager.xml_nodes = self.old_xml_nodes.copy()
+        self.mod_manager.recalculate_all_levels()
+        self.mod_manager.update_visibility()
+        self.mod_manager.populate_treeview()
+        # Reselect items if any
+        if self.selected_items_names:
+            self.mod_manager.select_items_by_name(self.selected_items_names)
+
+class TextEditCommand(Command):
+    def __init__(self, text_editor, old_content, new_content):
+        self.text_editor = text_editor
+        self.old_content = old_content
+        self.new_content = new_content
+        
+    def execute(self):
+        # Apply the new content
+        self.text_editor.delete(1.0, tk.END)
+        self.text_editor.insert(1.0, self.new_content)
+        
+    def undo(self):
+        # Restore the old content
+        self.text_editor.delete(1.0, tk.END)
+        self.text_editor.insert(1.0, self.old_content)
+
 class ModItem:
     def __init__(self, name: str, is_category: bool = False, is_collapsed: bool = False, parent_category: str = None):
         self.name = name
@@ -77,6 +132,10 @@ class ModManagerGUI:
         self.collapsed_categories = set()  # Track which categories are collapsed
         self.settings_window = None  # Track settings window
         
+        # Undo/Redo functionality
+        self.command_history = []
+        self.current_command_index = -1
+        
         # GUI setup
         self.settings = Settings()
         self.setup_gui()
@@ -90,6 +149,12 @@ class ModManagerGUI:
         # Top frame for buttons
         top_frame = ttk.Frame(main_frame)
         top_frame.pack(side=tk.TOP, fill=tk.X)
+
+        # Undo/Redo buttons
+        self.undo_button = ttk.Button(top_frame, text="Undo", command=self.undo_action, state=tk.DISABLED)
+        self.undo_button.pack(side=tk.LEFT)
+        self.redo_button = ttk.Button(top_frame, text="Redo", command=self.redo_action, state=tk.DISABLED)
+        self.redo_button.pack(side=tk.LEFT, padx=(0, 10))
 
         # Add settings and load buttons to top right
         settings_button = ttk.Button(top_frame, text="⚙", width=3, command=self.show_settings)
@@ -152,8 +217,6 @@ class ModManagerGUI:
         editor_frame.grid_rowconfigure(0, weight=1)
         editor_frame.grid_columnconfigure(0, weight=1)
         
-        # Bind key events
-        
         # Load initial content
         self.load_text_editor_content()
         paned_window.add(editor_frame)
@@ -199,6 +262,10 @@ class ModManagerGUI:
         self.status_var.set("Ready")
         status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        # Bind keyboard shortcuts
+        self.root.bind('<Control-z>', self.undo_action)
+        self.root.bind('<Control-y>', self.redo_action)
 
     def show_settings(self):
         # Check if settings window already exists and is still valid
@@ -288,6 +355,9 @@ class ModManagerGUI:
 
     def move_line_up(self, event):
         """Move the current line or selected lines up"""
+        # Store the current content before making changes
+        old_content = self.text_editor.get(1.0, tk.END)
+        
         # Get current selection or cursor position
         try:
             start_index = self.text_editor.index("sel.first linestart")
@@ -319,10 +389,18 @@ class ModManagerGUI:
         self.text_editor.tag_add("sel", new_start, new_end)
         self.text_editor.mark_set("insert", new_start)
         
+        # Create and add command to history
+        new_content = self.text_editor.get(1.0, tk.END)
+        command = TextEditCommand(self.text_editor, old_content, new_content)
+        self.add_command(command)
+        
         return "break"
 
     def move_line_down(self, event):
         """Move the current line or selected lines down"""
+        # Store the current content before making changes
+        old_content = self.text_editor.get(1.0, tk.END)
+
         # Get current selection or cursor position
         try:
             start_index = self.text_editor.index("sel.first linestart")
@@ -353,6 +431,11 @@ class ModManagerGUI:
         new_end = self.text_editor.index(f"{new_start}+{len(selected_text.splitlines())}l linestart-1c")
         self.text_editor.tag_add("sel", new_start, new_end)
         self.text_editor.mark_set("insert", new_start)
+
+        # Create and add command to history
+        new_content = self.text_editor.get(1.0, tk.END)
+        command = TextEditCommand(self.text_editor, old_content, new_content)
+        self.add_command(command)
         
         return "break"
 
@@ -422,6 +505,11 @@ class ModManagerGUI:
             self.recalculate_all_levels()
             self.populate_treeview()
             self.status_var.set(f"Loaded {len([item for item in self.mod_items if not item.is_category])} mods in {len([item for item in self.mod_items if item.is_category])} categories")
+            # Clear command history when loading a new file
+            self.command_history = []
+            self.current_command_index = -1
+            self.undo_button.config(state=tk.DISABLED)
+            self.redo_button.config(state=tk.DISABLED)
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load XML file: {str(e)}")
             
@@ -791,9 +879,16 @@ class ModManagerGUI:
         if position == "below":
             target_index += 1
             
+        # Store the current state before making changes
+        old_items = self.mod_items.copy()
+        old_xml_nodes = self.xml_nodes.copy()
+        
         # Get the items and XML nodes to move
         items_to_move = [item for _, item in selected_items]
         xml_nodes_to_move = [self.xml_nodes[i] for i, _ in selected_items]
+        
+        # Store names for re-selection
+        selected_names = [item.name for _, item in selected_items]
         
         # Remove items from their current positions (in reverse order)
         for i, _ in reversed(selected_items):
@@ -813,6 +908,12 @@ class ModManagerGUI:
         # Update display
         self.update_visibility()
         self.populate_treeview()
+        
+        # Create and add command to history
+        new_items = self.mod_items.copy()
+        new_xml_nodes = self.xml_nodes.copy()
+        command = MoveItemsCommand(self, old_items, new_items, old_xml_nodes, new_xml_nodes, selected_names)
+        self.add_command(command)
         
     def on_mouse_motion(self, event):
         """Handle mouse motion for hover effects"""
@@ -945,13 +1046,17 @@ class ModManagerGUI:
         if not selected_items:
             return
             
-        # Store names for re-selection
-        selected_names = [item.name for _, item in selected_items]
-            
         # Check if we can move up
         first_index = selected_items[0][0]
         if first_index <= 0:
             return
+            
+        # Store the current state before making changes
+        old_items = self.mod_items.copy()
+        old_xml_nodes = self.xml_nodes.copy()
+            
+        # Store names for re-selection
+        selected_names = [item.name for _, item in selected_items]
             
         # Find the previous item
         target_index = first_index - 1
@@ -976,6 +1081,12 @@ class ModManagerGUI:
         self.update_visibility()
         self.populate_treeview()
         
+        # Create and add command to history
+        new_items = self.mod_items.copy()
+        new_xml_nodes = self.xml_nodes.copy()
+        command = MoveItemsCommand(self, old_items, new_items, old_xml_nodes, new_xml_nodes, selected_names)
+        self.add_command(command)
+        
         # Re-select moved items
         self.tree.after_idle(lambda: self.select_items_by_name(selected_names))
         
@@ -985,13 +1096,17 @@ class ModManagerGUI:
         if not selected_items:
             return
             
-        # Store names for re-selection
-        selected_names = [item.name for _, item in selected_items]
-            
         # Check if we can move down
         last_index = selected_items[-1][0]
         if last_index >= len(self.mod_items) - 1:
             return
+            
+        # Store the current state before making changes
+        old_items = self.mod_items.copy()
+        old_xml_nodes = self.xml_nodes.copy()
+
+        # Store names for re-selection
+        selected_names = [item.name for _, item in selected_items]
             
         # Move to after the next item
         target_index = last_index + 2 - len(selected_items)
@@ -1015,6 +1130,12 @@ class ModManagerGUI:
         
         self.update_visibility()
         self.populate_treeview()
+        
+        # Create and add command to history
+        new_items = self.mod_items.copy()
+        new_xml_nodes = self.xml_nodes.copy()
+        command = MoveItemsCommand(self, old_items, new_items, old_xml_nodes, new_xml_nodes, selected_names)
+        self.add_command(command)
         
         # Re-select moved items
         self.tree.after_idle(lambda: self.select_items_by_name(selected_names))
@@ -1042,6 +1163,13 @@ class ModManagerGUI:
             
         new_idx -= 1  # Convert to 0-based
         
+        # Store the current state before making changes
+        old_items = self.mod_items.copy()
+        old_xml_nodes = self.xml_nodes.copy()
+        
+        # Store names for re-selection
+        selected_names = [item.name for _, item in selected_items]
+
         # Get the items and XML nodes to move
         items_to_move = [item for _, item in selected_items]
         xml_nodes_to_move = [self.xml_nodes[i] for i, _ in selected_items]
@@ -1061,6 +1189,12 @@ class ModManagerGUI:
         
         self.update_visibility()
         self.populate_treeview()
+        
+        # Create and add command to history
+        new_items = self.mod_items.copy()
+        new_xml_nodes = self.xml_nodes.copy()
+        command = MoveItemsCommand(self, old_items, new_items, old_xml_nodes, new_xml_nodes, selected_names)
+        self.add_command(command)
         
         # Select the moved items
         self.select_items_by_name([item.name for item in items_to_move])
@@ -1192,6 +1326,11 @@ class ModManagerGUI:
         if messagebox.askyesno("Confirm Reset", "Reset all changes? This will reload from the LSX file."):
             self.load_xml_file()
             self.load_text_editor_content()
+            # Clear command history when resetting changes
+            self.command_history = []
+            self.current_command_index = -1
+            self.undo_button.config(state=tk.DISABLED)
+            self.redo_button.config(state=tk.DISABLED)
             
     def save_state(self):
         """Save current state to file"""
@@ -1229,6 +1368,41 @@ class ModManagerGUI:
                 
         except Exception as e:
             print(f"Failed to load state: {e}")
+            
+    def add_command(self, command):
+        """Add a command to the history and execute it"""
+        # Remove any commands after the current index (for branching)
+        self.command_history = self.command_history[:self.current_command_index + 1]
+        
+        # Add the new command
+        self.command_history.append(command)
+        self.current_command_index += 1
+        
+        # Enable undo button, disable redo button
+        self.undo_button.config(state=tk.NORMAL)
+        self.redo_button.config(state=tk.DISABLED)
+        
+    def undo_action(self, event=None):
+        """Undo the last action"""
+        if self.current_command_index >= 0:
+            command = self.command_history[self.current_command_index]
+            command.undo()
+            self.current_command_index -= 1
+            
+            # Update button states
+            self.undo_button.config(state=tk.NORMAL if self.current_command_index >= 0 else tk.DISABLED)
+            self.redo_button.config(state=tk.NORMAL)
+            
+    def redo_action(self, event=None):
+        """Redo the last undone action"""
+        if self.current_command_index < len(self.command_history) - 1:
+            self.current_command_index += 1
+            command = self.command_history[self.current_command_index]
+            command.execute()
+            
+            # Update button states
+            self.undo_button.config(state=tk.NORMAL)
+            self.redo_button.config(state=tk.NORMAL if self.current_command_index < len(self.command_history) - 1 else tk.DISABLED)
             
     def on_closing(self):
         """Handle application closing"""
